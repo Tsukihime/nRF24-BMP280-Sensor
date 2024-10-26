@@ -1,0 +1,8 @@
+*/Debug/
+*/Release/
+*/indoorSensor/
+*/outdoorSensor/
+*.csv
+*.atsuo
+*.componentinfo.xml
+*.rar
