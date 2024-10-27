@@ -129,7 +129,7 @@ int main(void) {
         }
 
         if (++counter >= UPDATE_PERIOD) counter = 0;
-        if (++ident_counter >= IDENT_PERIOD) counter = 0;
+        if (++ident_counter >= IDENT_PERIOD) ident_counter = 0;
         
         enterSleep();
     }
