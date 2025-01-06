@@ -52,6 +52,31 @@ uint16_t getBatteryVoltage() {
     return voltage;                           // millivolts
 }
 
+uint8_t calculateCR2032BatteryPercentage(uint16_t voltage_mv) {
+    if (voltage_mv >= 3000) {
+        return 100;
+    }
+
+    if (voltage_mv >= 2900) {
+        return 100 - (58 * (3000 - voltage_mv)) / 100; // Section 1: 3000mV - 2900mV -> 100% - 42%
+    }
+
+    if (voltage_mv >= 2740) {
+        return 42 - (24 * (2900 - voltage_mv)) / 160; // Section 2: 2900mV - 2740mV -> 42% - 18%
+    }
+
+    if (voltage_mv >= 2440) {
+        return 18 - (12 * (2740 - voltage_mv)) / 300; // Section 3: 2740mV - 2440mV -> 18% - 6%
+    }
+
+    if (voltage_mv >= 2100) {
+        return 6 - (6 * (2440 - voltage_mv)) / 340; // Section 4: 2440mV - 2100mV -> 6% - 0%
+    }
+
+    return 0;
+}
+
+
 void nrfSetup() {
     uint8_t gateway_address[6] = { "NrfMQ" };
     const uint8_t gateway_channel = 0x6f;
@@ -70,12 +95,13 @@ void nrfSetup() {
 void identify() {
     RF24MQTT_sendMessage_P(temp_conf_topic, temp_conf_payload, true);
     RF24MQTT_sendMessage_P(press_conf_topic, press_conf_payload, true);
+    RF24MQTT_sendMessage_P(voltage_conf_topic, voltage_conf_payload, true);
     RF24MQTT_sendMessage_P(batt_conf_topic, batt_conf_payload, true);
 }
 
 void initAll() {
     clock_prescale_set(clock_div_8); // switch clock to 1 MHz
-	PRR |= (1 << PRTIM0) | (1 << PRTIM1) | (1 << PRTIM2) | (1 << PRUSART0); // disable all timers & USART
+    PRR |= (1 << PRTIM0) | (1 << PRTIM1) | (1 << PRTIM2) | (1 << PRUSART0); // disable all timers & USART
     ACSR |= (1 << ACD);  // disable Analog Comparator
     sleep_bod_disable(); // disable the BOD while sleeping
 
@@ -118,7 +144,13 @@ int main(void) {
             strcat(buff,",\"p\":");
             strcat(buff, value_str);
 
-            int16_t batt = clamp(((int16_t)getBatteryVoltage() - 2000 + 5) / 10, 0, 100);            
+            uint16_t voltage = getBatteryVoltage();
+                        
+            int32ToStrFixedPoint(voltage, value_str);
+            strcat(buff,",\"v\":");
+            strcat(buff, value_str);
+
+            uint8_t batt = calculateCR2032BatteryPercentage(voltage);
             int32ToStrFixedPoint(batt, value_str);
             strcat(buff,",\"b\":");
             strcat(buff, value_str);

@@ -25,6 +25,9 @@ const char temp_conf_payload[] PROGMEM  =  R"({"uniq_id":")" DEVICE_ID R"(t","na
 const char press_conf_topic[] PROGMEM  = "homeassistant/sensor/BMP280_" DEVICE_ID "p/config";
 const char press_conf_payload[] PROGMEM  = R"({"uniq_id":")" DEVICE_ID R"(p","name":"Pressure","dev_cla":"pressure","stat_t":"home/BMP280_)" DEVICE_ID R"(","unit_of_meas":"hPa","val_tpl":"{{value_json.p}}","dev":{"ids":[")" DEVICE_ID R"("]}})";
 
+const char voltage_conf_topic[] PROGMEM  =  "homeassistant/sensor/BMP280_" DEVICE_ID "v/config";
+const char voltage_conf_payload[] PROGMEM  =  R"({"uniq_id":")" DEVICE_ID R"(v","name":"Battery voltage","dev_cla":"voltage","stat_t":"home/BMP280_)" DEVICE_ID R"(","unit_of_meas":"mV","val_tpl":"{{value_json.v}}","dev":{"ids":[")" DEVICE_ID R"("]}})";
+
 const char batt_conf_topic[] PROGMEM  =  "homeassistant/sensor/BMP280_" DEVICE_ID "b/config";
 const char batt_conf_payload[] PROGMEM  =  R"({"uniq_id":")" DEVICE_ID R"(b","name":"Battery","dev_cla":"battery","stat_t":"home/BMP280_)" DEVICE_ID R"(","unit_of_meas":"%","val_tpl":"{{value_json.b}}","dev":{"ids":[")" DEVICE_ID R"("]}})";
 
