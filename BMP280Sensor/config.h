@@ -8,7 +8,7 @@ const uint16_t UPDATE_PERIOD = 60 * 5 / 8; // update every 5 min (8sec interval)
 
 #if defined(INDOOR)
     #define DEVICE_ID "indoor"
-    const uint16_t BANDGAP_REFERENCE_VOLTAGE = 1067;
+    const uint16_t BANDGAP_REFERENCE_VOLTAGE = 1040; //1067;
 #elif defined(OUTDOOR)
     #define DEVICE_ID "outdoor"
     const uint16_t BANDGAP_REFERENCE_VOLTAGE = 1075;
