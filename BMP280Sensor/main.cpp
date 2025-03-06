@@ -55,26 +55,26 @@ uint16_t getBatteryVoltage() {
 
 uint8_t calculateCR2032BatteryPercentage(uint16_t voltage_mv) {
     if (voltage_mv >= 3000) {
-        return 100;
+        return 100; // ? 3.0 Â — 100%
     }
 
     if (voltage_mv >= 2900) {
-        return 100 - (58 * (3000 - voltage_mv)) / 100; // Section 1: 3000mV - 2900mV -> 100% - 42%
+        return 100 - (15 * (3000 - voltage_mv)) / 100; // 3000 ìÂ ? 100%, 2900 ìÂ ? 85%
     }
 
-    if (voltage_mv >= 2740) {
-        return 42 - (24 * (2900 - voltage_mv)) / 160; // Section 2: 2900mV - 2740mV -> 42% - 18%
+    if (voltage_mv >= 2700) {
+        return 85 - (25 * (2900 - voltage_mv)) / 200; // 2900 ìÂ ? 85%, 2700 ìÂ ? 60%
     }
 
-    if (voltage_mv >= 2440) {
-        return 18 - (12 * (2740 - voltage_mv)) / 300; // Section 3: 2740mV - 2440mV -> 18% - 6%
+    if (voltage_mv >= 2500) {
+        return 60 - (40 * (2700 - voltage_mv)) / 200; // 2700 ìÂ ? 60%, 2500 ìÂ ? 20%
     }
 
     if (voltage_mv >= 2100) {
-        return 6 - (6 * (2440 - voltage_mv)) / 340; // Section 4: 2440mV - 2100mV -> 6% - 0%
+        return 20 - (20 * (2500 - voltage_mv)) / 400; // 2500 ìÂ ? 20%, 2100 ìÂ ? 0%
     }
 
-    return 0;
+    return 0; // < 2100 ìÂ — 0%
 }
 
 
