@@ -5,6 +5,7 @@
 
 const uint16_t IDENT_PERIOD = 60 * (60 * 12 / 8); // update every 12 hours (8sec interval)
 const uint16_t UPDATE_PERIOD = 60 * 5 / 8; // update every 5 min (8sec interval)
+const uint16_t START_DELAY_PERIOD = 60 * 3 / 8;
 
 #if defined(INDOOR)
     #define DEVICE_ID "indoor"

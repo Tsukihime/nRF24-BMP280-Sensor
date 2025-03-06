@@ -265,9 +265,15 @@ void RF24_write(void* buf, uint8_t len, bool multicast) {
 	_delay_us(10);
 	CE_set_level(false);
 
-    while (!(get_status() & ((1 << TX_DS) | (1 << MAX_RT)))) {
-        _delay_ms(1);
-    }
+	uint16_t timeout = 1000; // 1000 ms
+	while (!(get_status() & ((1 << TX_DS) | (1 << MAX_RT))) && timeout--) {
+		_delay_ms(1);
+	}
+	
+	if(timeout == 0) {
+		RF24_flush_tx();
+		return;
+	}
 
     uint8_t status = RF24_write_one_register(NRF_STATUS, 1 << RX_DR | 1 << TX_DS | 1 << MAX_RT);
     if (status & (1 << MAX_RT)) {

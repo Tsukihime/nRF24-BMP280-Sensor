@@ -20,13 +20,14 @@ extern "C" {
 
 EMPTY_INTERRUPT(WDT_vect); // WDT Interrupt Is Used To Wake Up CPU From Sleep Mode
 
-void initWatchdog() {
+// Initialize or restore watchdog timer to combined mode (interrupt + reset)
+void setupWatchdog() {
     MCUSR &= ~(1 << WDRF);               // Just to be safe since we can not clear WDE if WDRF is set
     cli();                               // disable interrupts so we do not get interrupted while doing timed sequence
     wdt_reset();
     WDTCSR = (1 << WDCE) | (1 << WDE);   // First step of timed sequence, we have 4 cycles after this to make changes to WDE and WD timeout
-    WDTCSR = (1 << WDP3) | (1 << WDP0) | // timeout in 8 second, disable reset mode,
-             (1 << WDIE);                // enable watchdog interrupt only mode, must be done in one operation
+    WDTCSR = (1 << WDP3) | (1 << WDP0) | // Set timeout to 8 seconds
+             (1 << WDIE) | (1 << WDE);   // Enable both interrupt and system reset (combined mode), must be done in one operation
     sei();
 }
 
@@ -105,34 +106,33 @@ void initAll() {
     ACSR |= (1 << ACD);  // disable Analog Comparator
     sleep_bod_disable(); // disable the BOD while sleeping
 
-    // Enable pull-ups on unused I/O pins
-    DDRB = 0x00;
-    PORTB = 0xFF;
-    DDRC = 0x00;
-    PORTC = 0xFF;
-    DDRD = 0x00;
-    PORTD = 0xFF;
+    // Enable pull-ups on all unused pins to reduce leakage current
+    DDRB = 0x00; PORTB = 0xFF;
+    DDRC = 0x00; PORTC = 0xFF;
+    DDRD = 0x00; PORTD = 0xFF;
 
     bmp280_init();
     NRF_connect_init();
-
-    initWatchdog();
+    setupWatchdog();
 }
 
 int main(void) {
     initAll();
 
-    uint16_t counter = 0;
-    uint16_t ident_counter = 0;
+    uint16_t update_counter = START_DELAY_PERIOD;
+    uint16_t ident_counter = START_DELAY_PERIOD;
+    uint16_t voltage = getBatteryVoltage();
     char value_str[13];
 
     while (true) {
         if(ident_counter == 0) {
+            ident_counter = IDENT_PERIOD;
             nrfSetup();
             identify();
         }
 
-        if (counter == 0) {
+        if (update_counter == 0) {
+            update_counter = UPDATE_PERIOD;
             char buff[40] = "";
             bmp280_takeForcedMeasurement(MODE_FORCED, SAMPLING_X2, SAMPLING_X16);
 
@@ -144,8 +144,6 @@ int main(void) {
             strcat(buff,",\"p\":");
             strcat(buff, value_str);
 
-            uint16_t voltage = getBatteryVoltage();
-                        
             int32ToStrFixedPoint(voltage, value_str);
             strcat(buff,",\"v\":");
             strcat(buff, value_str);
@@ -158,11 +156,13 @@ int main(void) {
 
             nrfSetup();
             RF24MQTT_sendMessage(TOPIC_NAME, buff, false);
+            voltage = getBatteryVoltage();
         }
 
-        if (++counter >= UPDATE_PERIOD) counter = 0;
-        if (++ident_counter >= IDENT_PERIOD) ident_counter = 0;
+        update_counter--;
+        ident_counter--;
         
         enterSleep();
+        setupWatchdog(); // After waking up from sleep, restore combined mode
     }
 }
