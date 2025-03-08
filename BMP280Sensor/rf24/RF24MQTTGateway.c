@@ -7,70 +7,81 @@ const uint8_t PACKET_START = 255;
 const uint8_t PACKET_NEXT = 254;
 const uint8_t PACKET_STOP = 253;
 
-union BigPacket {
+union Packet {
     struct {
-        uint16_t topic_length;
-        uint16_t payload_length;
-        uint8_t retained;
-        uint8_t data[RF24MQTT_PACKET_SIZE - 5];
-    };
-    uint8_t raw[RF24MQTT_PACKET_SIZE];
+        struct {
+            uint8_t marker;                 // Packet marker (START/NEXT/STOP)
+            uint16_t topic_length;          // Length of the topic
+            uint16_t payload_length;        // Length of the payload
+            uint8_t retained;               // Retained flag
+        } header;                           // Packet header
+        uint8_t data[RF24_PACKET_SIZE - 6]; // Data field (26 bytes)
+    } first;
+    struct {
+        struct {
+            uint8_t marker;                  // Packet marker (START/NEXT/STOP)
+        } header;                            // Packet header
+        uint8_t data[RF24_PACKET_SIZE - 1];  // Data field (31 bytes)
+    } next;
+    uint8_t raw[RF24_PACKET_SIZE];           // Raw packet buffer (32 bytes)
 };
 
-void RF24MQTT_sendShortMessage(const char* topic, const char* payload) {
-    char buffer[32];
-    uint8_t topicLength = strlen(topic);
-    uint8_t payloadLength = strlen(payload);
-    uint8_t messageLength = topicLength + payloadLength + 2;
-    if(messageLength > 32) return;
+void RF24MQTT_sendMessageX(const char* topic, const char* payload, bool retained, bool progmem) {
+    if (!topic) return;
 
-    buffer[0] = topicLength;
-    buffer[1] = payloadLength;
-    memcpy(&buffer[2], topic, topicLength);
-    memcpy(&buffer[2 + topicLength], payload, payloadLength);
+    union Packet packet;
+    uint16_t topic_len = progmem ? strlen_P(topic) : strlen(topic);
+    uint16_t payload_len = progmem ? strlen_P(payload) : strlen(payload);
+    uint16_t total_size = topic_len + payload_len;
 
     RF24_powerUp();
-    RF24_write(buffer, messageLength, false);
-    RF24_powerDown();
-}
 
-void RF24MQTT_sendData(uint8_t* data, uint16_t size) {
-    RF24_powerUp();
-    for(uint16_t i = 0; i < size; i += 31) {
-        uint8_t buff[32];
-        if(i == 0){
-            buff[0] = PACKET_START;
+    for (uint16_t i = 0; i < total_size;) {
+        uint16_t bytes_to_copy;
+        uint8_t* data_ptr;
+
+        if (i == 0) {
+            packet.first.header.marker = PACKET_START;
+            packet.first.header.topic_length = topic_len;
+            packet.first.header.payload_length = payload_len;
+            packet.first.header.retained = retained;
+            data_ptr = packet.first.data;
+            bytes_to_copy = sizeof(packet.first.data);
+        } else {
+            packet.next.header.marker = PACKET_NEXT;
+            data_ptr = packet.next.data;
+            bytes_to_copy = sizeof(packet.next.data);
+        }
+
+        if ((total_size - i) <= bytes_to_copy) {
+            bytes_to_copy = total_size - i;
+            packet.next.header.marker = PACKET_STOP;
+        }
+
+        for (uint8_t k = 0; k < bytes_to_copy; k++) {
+            if (i + k < topic_len) {
+                data_ptr[k] = progmem ?
+                    pgm_read_byte(&topic[i + k]) :
+                    topic[i + k];
             } else {
-            buff[0] = PACKET_NEXT;
+                data_ptr[k] = progmem ?
+                    pgm_read_byte(&payload[i + k - topic_len]) :
+                    payload[i + k - topic_len];
+            }
         }
 
-        uint8_t len = 31;
-        if((size - i) <= len) {
-            len = (size - i);
-            buff[0] = PACKET_STOP;
-        }
-        memcpy(&buff[1], &data[i], len);
-        RF24_write(buff, len + 1, false);
+        uint16_t data_sz = bytes_to_copy + (i == 0 ? sizeof(packet.first.header) : sizeof(packet.next.header));
+        RF24_write(packet.raw, data_sz, false);
+        i += bytes_to_copy;
     }
-    RF24_powerDown();
-}
 
-void RF24MQTT_sendMessage_P(const char* topic, const char* payload, bool retained) {
-    union BigPacket pk;
-    pk.retained = retained;
-    pk.topic_length = strlen_P(topic);
-    pk.payload_length = strlen_P(payload);
-    memcpy_P(&pk.data, topic, pk.topic_length);
-    memcpy_P(&pk.data[pk.topic_length], payload, pk.payload_length);
-    RF24MQTT_sendData(&pk.raw[0], pk.topic_length + pk.payload_length + 5);
+    RF24_powerDown();
 }
 
 void RF24MQTT_sendMessage(const char* topic, const char* payload, bool retained) {
-    union BigPacket pk;
-    pk.retained = retained;
-    pk.topic_length = strlen(topic);
-    pk.payload_length = strlen(payload);
-    memcpy(&pk.data, topic, pk.topic_length);
-    memcpy(&pk.data[pk.topic_length], payload, pk.payload_length);
-    RF24MQTT_sendData(&pk.raw[0], pk.topic_length + pk.payload_length + 5);
+    RF24MQTT_sendMessageX(topic, payload, retained, false);
+}
+
+void RF24MQTT_sendMessage_P(const char* topic, const char* payload, bool retained) {
+    RF24MQTT_sendMessageX(topic, payload, retained, true);
 }

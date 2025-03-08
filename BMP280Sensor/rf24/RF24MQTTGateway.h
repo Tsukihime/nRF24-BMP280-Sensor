@@ -5,11 +5,7 @@
 #include <stdbool.h>
 #include <string.h>
 
-#ifndef RF24MQTT_PACKET_SIZE
-    #define RF24MQTT_PACKET_SIZE 400
-#endif
-
-void RF24MQTT_sendShortMessage(const char* topic, const char* payload);
+#define RF24_PACKET_SIZE 32
 
 void RF24MQTT_sendData(uint8_t* data, uint16_t size);
 
