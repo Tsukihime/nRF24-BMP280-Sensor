@@ -22,12 +22,8 @@ EMPTY_INTERRUPT(WDT_vect); // WDT Interrupt Is Used To Wake Up CPU From Sleep Mo
 
 // Initialize or restore watchdog timer to combined mode (interrupt + reset)
 void setupWatchdog() {
-    MCUSR &= ~(1 << WDRF);               // Just to be safe since we can not clear WDE if WDRF is set
-    cli();                               // disable interrupts so we do not get interrupted while doing timed sequence
-    wdt_reset();
-    WDTCSR = (1 << WDCE) | (1 << WDE);   // First step of timed sequence, we have 4 cycles after this to make changes to WDE and WD timeout
-    WDTCSR = (1 << WDP3) | (1 << WDP0) | // Set timeout to 8 seconds
-             (1 << WDIE) | (1 << WDE);   // Enable both interrupt and system reset (combined mode), must be done in one operation
+    wdt_enable(WDTO_8S);
+    WDTCSR |= (1 << WDIE); // Enable both interrupt and system reset (combined mode)
     sei();
 }
 
@@ -44,7 +40,7 @@ uint16_t getBatteryVoltage() {
              (0 << ADPS2) | (1 << ADPS1) | (1 << ADPS0); // ADC Prescaler Selections Div8
 
     _delay_us(500); // a delay rather than a dummy measurement is needed to give a stable reading!
-   
+
     ADCSRA |= (1 << ADSC);                    // start conversion
     while(bit_is_set(ADCSRA, ADSC));          // wait to finish
 
@@ -77,7 +73,6 @@ uint8_t calculateCR2032BatteryPercentage(uint16_t voltage_mv) {
     return 0; // < 2100 ìÂ — 0%
 }
 
-
 void nrfSetup() {
     uint8_t gateway_address[6] = { "NrfMQ" };
     const uint8_t gateway_channel = 0x6f;
@@ -101,6 +96,7 @@ void identify() {
 }
 
 void initAll() {
+    setupWatchdog();
     clock_prescale_set(clock_div_8); // switch clock to 1 MHz
     PRR |= (1 << PRTIM0) | (1 << PRTIM1) | (1 << PRTIM2) | (1 << PRUSART0); // disable all timers & USART
     ACSR |= (1 << ACD);  // disable Analog Comparator
@@ -113,14 +109,26 @@ void initAll() {
 
     bmp280_init();
     NRF_connect_init();
-    setupWatchdog();
 }
 
+// Counter for tracking identification delay, preserved between resets
+uint16_t ident_counter __attribute__((section(".noinit")));
+
 int main(void) {
+    bool isWatchdogReset = MCUSR & (1 << WDRF);
+    MCUSR = 0;
+
     initAll();
 
+    if (isWatchdogReset) {
+        if (ident_counter > IDENT_PERIOD) { // If the counter value is incorrect
+            ident_counter = START_DELAY_PERIOD;
+        } // else continue count
+    } else {                                // Normal reset
+        ident_counter = START_DELAY_PERIOD;
+    }
+
     uint16_t update_counter = START_DELAY_PERIOD;
-    uint16_t ident_counter = START_DELAY_PERIOD;
     uint16_t voltage = getBatteryVoltage();
     char value_str[13];
 
@@ -133,7 +141,7 @@ int main(void) {
 
         if (update_counter == 0) {
             update_counter = UPDATE_PERIOD;
-            char buff[40] = "";
+            char buff[50] = "";
             bmp280_takeForcedMeasurement(MODE_FORCED, SAMPLING_X2, SAMPLING_X16);
 
             int32ToStrFixedPoint((bmp280_gettemperature() + 5) / 10, value_str, 1);
@@ -152,6 +160,7 @@ int main(void) {
             int32ToStrFixedPoint(batt, value_str);
             strcat(buff,",\"b\":");
             strcat(buff, value_str);
+
             strcat(buff,"}");
 
             nrfSetup();
@@ -161,7 +170,7 @@ int main(void) {
 
         update_counter--;
         ident_counter--;
-        
+
         enterSleep();
         setupWatchdog(); // After waking up from sleep, restore combined mode
     }
