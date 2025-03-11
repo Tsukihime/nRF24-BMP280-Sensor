@@ -24,8 +24,8 @@ static const uint8_t child_payload_size[] = { RX_PW_P0, RX_PW_P1, RX_PW_P2, RX_P
 uint8_t RF24_read_register(uint8_t reg, uint8_t* buf, uint8_t len) {
 	uint8_t status;
 	CSN_set_level(false);
-	status = SPI_0_exchange_byte(R_REGISTER | (REGISTER_MASK & reg));
-	SPI_0_read_block(buf, len);
+	status = SPI_exchange_byte(R_REGISTER | (REGISTER_MASK & reg));
+	SPI_read_block(buf, len);
 	CSN_set_level(true);
 	return status;
 }
@@ -33,8 +33,8 @@ uint8_t RF24_read_register(uint8_t reg, uint8_t* buf, uint8_t len) {
 uint8_t RF24_read_one_register(uint8_t reg) {
 	uint8_t val = 0;
 	CSN_set_level(false);
-	SPI_0_exchange_byte(R_REGISTER | (REGISTER_MASK & reg));
-	val = SPI_0_exchange_byte(0xFF);
+	SPI_exchange_byte(R_REGISTER | (REGISTER_MASK & reg));
+	val = SPI_exchange_byte(0xFF);
 	CSN_set_level(true);
 	return val;
 }
@@ -42,8 +42,8 @@ uint8_t RF24_read_one_register(uint8_t reg) {
 uint8_t RF24_write_register(uint8_t reg, uint8_t* buf, uint8_t len) {
 	uint8_t status;
 	CSN_set_level(false);
-	status = SPI_0_exchange_byte(W_REGISTER | (REGISTER_MASK & reg));
-	SPI_0_write_block(buf, len);
+	status = SPI_exchange_byte(W_REGISTER | (REGISTER_MASK & reg));
+	SPI_write_block(buf, len);
 	CSN_set_level(true);
 	return status;
 }
@@ -51,8 +51,8 @@ uint8_t RF24_write_register(uint8_t reg, uint8_t* buf, uint8_t len) {
 uint8_t RF24_write_one_register(uint8_t reg, uint8_t val) {
 	uint8_t status;
 	CSN_set_level(false);
-	status = SPI_0_exchange_byte(W_REGISTER | (REGISTER_MASK & reg));
-	SPI_0_exchange_byte(val);
+	status = SPI_exchange_byte(W_REGISTER | (REGISTER_MASK & reg));
+	SPI_exchange_byte(val);
 	CSN_set_level(true);
 	return status;
 }
@@ -62,10 +62,10 @@ uint8_t RF24_write_payload(void* buf, uint8_t data_len, uint8_t writeType) {
 	uint8_t status;
 	uint8_t blank_len = dynamic_payloads_enabled ? 0 : payload_size - data_len;
 	CSN_set_level(false);
-	status = SPI_0_exchange_byte(writeType);
-	SPI_0_write_block(buf, data_len);
+	status = SPI_exchange_byte(writeType);
+	SPI_write_block(buf, data_len);
 	while (blank_len--) {
-		SPI_0_exchange_byte(0);
+		SPI_exchange_byte(0);
 	}
 	CSN_set_level(true);
 	return status;
@@ -78,10 +78,10 @@ uint8_t RF24_read_payload(void* buf, uint8_t data_len) {
 	}
 	uint8_t blank_len = dynamic_payloads_enabled ? 0 : payload_size - data_len;
 	CSN_set_level(false);
-	status = SPI_0_exchange_byte(R_RX_PAYLOAD);
-	SPI_0_read_block(buf, data_len);
+	status = SPI_exchange_byte(R_RX_PAYLOAD);
+	SPI_read_block(buf, data_len);
 	while(blank_len--) {
-		SPI_0_exchange_byte(0xFF);
+		SPI_exchange_byte(0xFF);
 	}
 	CSN_set_level(true);
 	return status;
@@ -90,20 +90,20 @@ uint8_t RF24_read_payload(void* buf, uint8_t data_len) {
 //stuff for begin()
 void RF24_flush_rx(void) {
 	CSN_set_level(false);
-	SPI_0_exchange_byte(FLUSH_RX);
+	SPI_exchange_byte(FLUSH_RX);
 	CSN_set_level(true);
 }
 
 void RF24_flush_tx(void) {
 	CSN_set_level(false);
-	SPI_0_exchange_byte(FLUSH_TX);
+	SPI_exchange_byte(FLUSH_TX);
 	CSN_set_level(true);
 }
 
 void RF24_toggle_features(void) { //idk what this does
 	CSN_set_level(false);
-	SPI_0_exchange_byte(ACTIVATE);
-	SPI_0_exchange_byte(0x73);
+	SPI_exchange_byte(ACTIVATE);
+	SPI_exchange_byte(0x73);
 	CSN_set_level(true);
 }
 
@@ -252,12 +252,12 @@ void RF24_stopListening(void) {
 
 uint8_t get_status() {
     CSN_set_level(false);
-    uint8_t status = SPI_0_exchange_byte(RF24_NOP);
+    uint8_t status = SPI_exchange_byte(RF24_NOP);
     CSN_set_level(true);
     return status;
 }
 
-void RF24_write(void* buf, uint8_t len, bool multicast) {
+bool RF24_write(void* buf, uint8_t len, bool multicast) {
 	//cant do multicast == true w/o enabling dynamic ack (check RF24)
 	RF24_write_payload(buf, len, multicast ? W_TX_PAYLOAD_NO_ACK : W_TX_PAYLOAD);
     _delay_us(10);
@@ -269,16 +269,13 @@ void RF24_write(void* buf, uint8_t len, bool multicast) {
 	while (!(get_status() & ((1 << TX_DS) | (1 << MAX_RT))) && timeout--) {
 		_delay_ms(1);
 	}
-	
-	if(timeout == 0) {
-		RF24_flush_tx();
-		return;
-	}
 
     uint8_t status = RF24_write_one_register(NRF_STATUS, 1 << RX_DR | 1 << TX_DS | 1 << MAX_RT);
-    if (status & (1 << MAX_RT)) {
+    if (status & (1 << MAX_RT) || (timeout == 0)) {
         RF24_flush_tx(); // Only going to be 1 packet in the FIFO at a time using this method, so just flush
+		return false;
     }
+	return true;
 }
 
 void RF24_read(void* buf, uint8_t len) {

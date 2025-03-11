@@ -50,7 +50,7 @@ void RF24_startListening(void);
 
 void RF24_stopListening(void);
 
-void RF24_write(void* buf, uint8_t len, bool multicast);
+bool RF24_write(void* buf, uint8_t len, bool multicast);
 
 void RF24_read(void* buf, uint8_t len);
 

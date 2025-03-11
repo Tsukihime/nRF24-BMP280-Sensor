@@ -18,14 +18,13 @@ void NRF_connect_init() {
 	       | (0 << SPR1) | (0 << SPR0); /* SPI Clock rate selection: fosc/4 */
 }
 
-uint8_t SPI_0_exchange_byte(uint8_t data)
-{
+uint8_t SPI_exchange_byte(uint8_t data) {
 	SPDR = data;
 	while (!(SPSR & (1 << SPIF)));
 	return SPDR;
 }
 
-void SPI_0_exchange_block(void *block, uint8_t size) {
+void SPI_exchange_block(void *block, uint8_t size) {
 	uint8_t *b = (uint8_t *)block;
 	while (size--) {
 		SPDR = *b;
@@ -35,7 +34,7 @@ void SPI_0_exchange_block(void *block, uint8_t size) {
 	}
 }
 
-void SPI_0_write_block(void *block, uint8_t size) {
+void SPI_write_block(void *block, uint8_t size) {
 	uint8_t *b = (uint8_t *)block;
 	while (size--) {
 		SPDR = *b;
@@ -44,7 +43,7 @@ void SPI_0_write_block(void *block, uint8_t size) {
 	}
 }
 
-void SPI_0_read_block(void *block, uint8_t size) {
+void SPI_read_block(void *block, uint8_t size) {
 	uint8_t *b = (uint8_t *)block;
 	while (size--) {
 		SPDR = 0;
@@ -65,7 +64,7 @@ void CSN_set_level(bool level) {
 void CE_set_level(bool level) {
     if (level) {
         PORTB |= (1 << PINB1);
-        } else {
+    } else {
         PORTB &= ~(1 << PINB1);
     }
 }

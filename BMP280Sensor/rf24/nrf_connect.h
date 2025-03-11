@@ -6,13 +6,13 @@
 
 void NRF_connect_init(void);
 
-uint8_t SPI_0_exchange_byte(uint8_t data);
+uint8_t SPI_exchange_byte(uint8_t data);
 
-void SPI_0_exchange_block(void *block, uint8_t size);
+void SPI_exchange_block(void *block, uint8_t size);
 
-void SPI_0_write_block(void *block, uint8_t size);
+void SPI_write_block(void *block, uint8_t size);
 
-void SPI_0_read_block(void *block, uint8_t size);
+void SPI_read_block(void *block, uint8_t size);
 
 void CSN_set_level(bool level);
 

@@ -71,8 +71,11 @@ void RF24MQTT_sendMessageX(const char* topic, const char* payload, bool retained
         }
 
         uint16_t data_sz = bytes_to_copy + (i == 0 ? sizeof(packet.first.header) : sizeof(packet.next.header));
-        RF24_write(packet.raw, data_sz, false);
         i += bytes_to_copy;
+        bool is_ok = RF24_write(packet.raw, data_sz, false);
+        if(!is_ok) {
+            break;
+        }
     }
 
     RF24_powerDown();
