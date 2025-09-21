@@ -3,9 +3,21 @@
 
 #include <avr/pgmspace.h>
 
-const uint16_t IDENT_PERIOD = 60 * (60 * 12 / 8); // update every 12 hours (8sec interval)
-const uint16_t UPDATE_PERIOD = 60 * 5 / 8; // update every 5 min (8sec interval)
-const uint16_t START_DELAY_PERIOD = 60 * 3 / 8;
+constexpr uint16_t seconds_to_period(uint32_t seconds) {
+    return static_cast<uint16_t>(seconds / 8);
+}
+
+constexpr uint16_t minutes(uint32_t m) {
+    return seconds_to_period(m * 60);
+}
+
+constexpr uint16_t hours(uint32_t h) {
+    return seconds_to_period(h * 60 * 60);
+}
+
+const uint16_t IDENT_PERIOD = hours(12);
+const uint16_t UPDATE_PERIOD = minutes(5);
+const uint16_t START_DELAY_PERIOD = minutes(3);
 
 #if defined(INDOOR)
     #define DEVICE_ID "indoor"
@@ -13,7 +25,7 @@ const uint16_t START_DELAY_PERIOD = 60 * 3 / 8;
 #elif defined(OUTDOOR)
     #define DEVICE_ID "outdoor"
     const uint16_t BANDGAP_REFERENCE_VOLTAGE = 1075;
-#else    
+#else
     #define DEVICE_ID "bmp280"
     const uint16_t BANDGAP_REFERENCE_VOLTAGE = 1100;
 #endif

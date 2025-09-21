@@ -108,6 +108,7 @@ void initAll() {
     DDRD = 0x00; PORTD = 0xFF;
 
     bmp280_init();
+    bmp280_setSampling(MODE_FORCED, SAMPLING_X2, SAMPLING_X16, FILTER_OFF, STANDBY_MS_1);
     NRF_connect_init();
 }
 
