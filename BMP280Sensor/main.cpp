@@ -24,7 +24,6 @@ EMPTY_INTERRUPT(WDT_vect); // WDT Interrupt Is Used To Wake Up CPU From Sleep Mo
 void setupWatchdog() {
     wdt_enable(WDTO_8S);
     WDTCSR |= (1 << WDIE); // Enable both interrupt and system reset (combined mode)
-    sei();
 }
 
 void enterSleep(void) {
@@ -81,7 +80,7 @@ void nrfSetup() {
     RF24_setPALevel(RF24_PA_HIGH);
     RF24_enableDynamicPayloads();
     RF24_setDataRate(RF24_1MBPS);
-    RF24_setCRCLength(RF24_CRC_8);
+    RF24_setCRCLength(RF24_CRC_16);
     RF24_setChannel(gateway_channel);
     RF24_setAutoAck(true);
     RF24_openWritingPipe(gateway_address);
@@ -106,6 +105,8 @@ void initAll() {
     DDRB = 0x00; PORTB = 0xFF;
     DDRC = 0x00; PORTC = 0xFF;
     DDRD = 0x00; PORTD = 0xFF;
+    
+    sei();
 
     bmp280_init();
     bmp280_setSampling(MODE_FORCED, SAMPLING_X2, SAMPLING_X16, FILTER_OFF, STANDBY_MS_1);
