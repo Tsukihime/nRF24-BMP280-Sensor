@@ -1,16 +1,23 @@
 #ifndef RF24MQTTGATEWAY_H_
 #define RF24MQTTGATEWAY_H_
 
-#include <stdint.h>
 #include <stdbool.h>
-#include <string.h>
+#include "RF24.h"
 
-#define RF24_PACKET_SIZE 32
+typedef uint8_t (*gate_callback)(const char*, uintptr_t index);
 
-void RF24MQTT_sendData(uint8_t* data, uint16_t size);
-
-void RF24MQTT_sendMessage_P(const char* topic, const char* payload, bool retained);
-
-void RF24MQTT_sendMessage(const char* topic, const char* payload, bool retained);
+class RF24MQTTGateway {
+private:
+    RF24& radio;
+    
+public:
+    RF24MQTTGateway(RF24& radio) : radio(radio) {}
+    bool publish_P(const char* topic, const char* payload, bool retained = false);
+    bool publish(const char* topic, const char* payload, bool retained = false);
+    
+    bool sendToRadio(const char* topic, uint8_t topic_len,
+                     const char* payload, uint16_t payload_len, bool retained,
+                     bool use_callback = false, gate_callback getdata = nullptr);
+};
 
 #endif /* RF24MQTTGATEWAY_H_ */

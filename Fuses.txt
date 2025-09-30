@@ -1,1 +1,1 @@
-Fuses OK (E:07, H:D9, L:42)
+Fuses OK (E:07, H:D1, L:42)

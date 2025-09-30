@@ -41,6 +41,18 @@
       </ToolNumber>
       <ToolName xmlns="">Simulator</ToolName>
     </com_atmel_avrdbg_tool_simulator>
+    <AsfFrameworkConfig>
+      <framework-data xmlns="">
+        <options />
+        <configurations />
+        <files />
+        <documentation help="" />
+        <offline-documentation help="" />
+        <dependencies>
+          <content-extension eid="atmel.asf" uuidref="Atmel.ASF" version="3.49.1" />
+        </dependencies>
+      </framework-data>
+    </AsfFrameworkConfig>
   </PropertyGroup>
   <PropertyGroup Condition=" '$(Configuration)' == 'Release' ">
     <ToolchainSettings>
@@ -289,7 +301,7 @@
     <OutputPath>bin\outdoorSensor\</OutputPath>
   </PropertyGroup>
   <ItemGroup>
-    <Compile Include="bmp280\bmp280.c">
+    <Compile Include="bmp280\bmp280.cpp">
       <SubType>compile</SubType>
     </Compile>
     <Compile Include="bmp280\bmp280.h">
@@ -310,22 +322,19 @@
     <Compile Include="rf24\nRF24L01.h">
       <SubType>compile</SubType>
     </Compile>
-    <Compile Include="rf24\nrf_connect.c">
-      <SubType>compile</SubType>
-    </Compile>
-    <Compile Include="rf24\nrf_connect.h">
-      <SubType>compile</SubType>
-    </Compile>
-    <Compile Include="rf24\RF24.c">
+    <Compile Include="rf24\RF24.cpp">
       <SubType>compile</SubType>
     </Compile>
     <Compile Include="rf24\RF24.h">
       <SubType>compile</SubType>
     </Compile>
-    <Compile Include="rf24\RF24MQTTGateway.c">
+    <Compile Include="rf24\RF24MQTTGateway.cpp">
       <SubType>compile</SubType>
     </Compile>
     <Compile Include="rf24\RF24MQTTGateway.h">
+      <SubType>compile</SubType>
+    </Compile>
+    <Compile Include="rf24\RF24MQTTProto.h">
       <SubType>compile</SubType>
     </Compile>
     <Compile Include="utils.h">

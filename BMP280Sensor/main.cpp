@@ -1,29 +1,48 @@
 #include <avr/io.h>
 #include <avr/interrupt.h>
-#include <avr/sfr_defs.h>
 #include <avr/power.h>
 #include <avr/wdt.h>
 #include <avr/sleep.h>
 #include <util/delay.h>
+#include <avr/eeprom.h>
+#include <avr/pgmspace.h>
 #include <string.h>
 #include <stdio.h>
 
 #include "config.h"
 #include "utils.h"
 
-extern "C" {
-    #include "bmp280/bmp280.h"
-    #include "rf24/nrf_connect.h"
-    #include "rf24/RF24.h"
-    #include "rf24/RF24MQTTGateway.h"
-}
+#include "bmp280/bmp280.h"
+#include "rf24/RF24.h"
+#include "rf24/RF24MQTTGateway.h"
+
+BMP280 sensor(0x76);
+    
+RF24 radio(
+    [](uint8_t data) -> uint8_t {
+        SPDR = data;
+        while (!(SPSR & (1 << SPIF)));
+        return SPDR;
+    },
+    [](bool CSN, bool CE) {
+        PORTB = (PORTB & ~((1 << PINB2) | (1 << PINB1))) | (CSN << PINB2) | (CE << PINB1);
+    }
+);
+
+RF24MQTTGateway mqtt(radio);
+
+uint16_t battery_voltage_mv = 0;
+
+struct SETTINGS {
+    uint16_t magic;
+    uint16_t bandgap;
+    char id[6];
+} settings;
 
 EMPTY_INTERRUPT(WDT_vect); // WDT Interrupt Is Used To Wake Up CPU From Sleep Mode
 
-// Initialize or restore watchdog timer to combined mode (interrupt + reset)
-void setupWatchdog() {
-    wdt_enable(WDTO_8S);
-    WDTCSR |= (1 << WDIE); // Enable both interrupt and system reset (combined mode)
+inline void wdtRestoreInterruptAndResetMode() {
+    WDTCSR |= (1 << WDIE);
 }
 
 void enterSleep(void) {
@@ -32,110 +51,196 @@ void enterSleep(void) {
 }
 
 uint16_t getBatteryVoltage() {
-    ADMUX = (0 << REFS1) | (1 << REFS0) |                          // select AVCC as reference
-            (1 << MUX3) | (1 << MUX2) | (1 << MUX1) | (0 << MUX0); // measure bandgap reference voltage
+    #define ADC_REF_AVCC ((0 << REFS1) | (1 << REFS0))
+    #define ADC_BANDGAP_MUX ((1 << MUX3) | (1 << MUX2) | (1 << MUX1) | (0 << MUX0))
+    #define ADC_PRESCALER_DIV8 ((0 << ADPS2) | (1 << ADPS1) | (1 << ADPS0))
 
-    ADCSRA = (1 << ADEN) |                               // enable ADC
-             (0 << ADPS2) | (1 << ADPS1) | (1 << ADPS0); // ADC Prescaler Selections Div8
+    power_adc_enable();
 
-    _delay_us(500); // a delay rather than a dummy measurement is needed to give a stable reading!
+    ADMUX = ADC_REF_AVCC | ADC_BANDGAP_MUX;
+    ADCSRA = (1 << ADEN) | ADC_PRESCALER_DIV8;
 
-    ADCSRA |= (1 << ADSC);                    // start conversion
-    while(bit_is_set(ADCSRA, ADSC));          // wait to finish
+    _delay_us(500);  // a delay is needed to give a stable reading!
 
-    uint16_t voltage = BANDGAP_REFERENCE_VOLTAGE * 1024UL / ADC;
-    ADCSRA &= ~(1 << ADEN);                   // disable ADC
-    return voltage;                           // millivolts
+    ADCSRA |= (1 << ADSC);            // start conversion
+    while (bit_is_set(ADCSRA, ADSC)); // wait to finish
+
+    uint16_t voltage_mv = settings.bandgap * 1024UL / ADC;
+    ADCSRA &= ~(1 << ADEN);           // disable ADC
+
+    power_adc_disable();
+    return voltage_mv;
 }
 
-uint8_t calculateCR2032BatteryPercentage(uint16_t voltage_mv) {
-    if (voltage_mv >= 3000) {
-        return 100; // ? 3.0 Â — 100%
-    }
-
-    if (voltage_mv >= 2900) {
-        return 100 - (15 * (3000 - voltage_mv)) / 100; // 3000 ìÂ ? 100%, 2900 ìÂ ? 85%
-    }
-
-    if (voltage_mv >= 2700) {
-        return 85 - (25 * (2900 - voltage_mv)) / 200; // 2900 ìÂ ? 85%, 2700 ìÂ ? 60%
-    }
-
-    if (voltage_mv >= 2500) {
-        return 60 - (40 * (2700 - voltage_mv)) / 200; // 2700 ìÂ ? 60%, 2500 ìÂ ? 20%
-    }
-
-    if (voltage_mv >= 2100) {
-        return 20 - (20 * (2500 - voltage_mv)) / 400; // 2500 ìÂ ? 20%, 2100 ìÂ ? 0%
-    }
-
-    return 0; // < 2100 ìÂ — 0%
+uint8_t calcBatteryLevel(uint16_t voltage_mv) {
+    if (voltage_mv >= 3000) return 100;
+    if (voltage_mv >= 2880) return 100 - (3000 - voltage_mv) / 8; // 3000 mV -> 100%, 2880 mV -> 85%
+    if (voltage_mv >= 2680) return 85 - (2880 - voltage_mv) / 8;  // 2880 mV ->  85%, 2680 mV -> 60%
+    if (voltage_mv >= 2200) return 60 - (2680 - voltage_mv) / 8;  // 2680 mV ->  60%, 2200 mV -> 0%
+    return 0;
 }
 
 void nrfSetup() {
-    uint8_t gateway_address[6] = { "NrfMQ" };
-    const uint8_t gateway_channel = 0x6f;
+    static uint8_t gateway_address[6] = {"NrfMQ"};
+    static const uint8_t gateway_channel = 0x6f;
 
-    RF24_begin();
-    RF24_setPALevel(RF24_PA_HIGH);
-    RF24_enableDynamicPayloads();
-    RF24_setDataRate(RF24_1MBPS);
-    RF24_setCRCLength(RF24_CRC_16);
-    RF24_setChannel(gateway_channel);
-    RF24_setAutoAck(true);
-    RF24_openWritingPipe(gateway_address);
-    RF24_stopListening();
+    radio.begin();
+    radio.setPALevel(RF24_PA_MAX);
+    radio.enableDynamicPayloads();
+    radio.setDataRate(RF24_1MBPS);
+    radio.setCRCLength(RF24_CRC_16);
+    radio.setChannel(gateway_channel);
+    radio.setAutoAck(true);
+    radio.openWritingPipe(gateway_address);
+    radio.stopListening();
 }
 
-void identify() {
-    RF24MQTT_sendMessage_P(temp_conf_topic, temp_conf_payload, true);
-    RF24MQTT_sendMessage_P(press_conf_topic, press_conf_payload, true);
-    RF24MQTT_sendMessage_P(voltage_conf_topic, voltage_conf_payload, true);
-    RF24MQTT_sendMessage_P(batt_conf_topic, batt_conf_payload, true);
+uint8_t renderTemplate(const char* _template, uint16_t index) {
+    char c = pgm_read_byte(&_template[index]);
+    if (c != PLACEHOLDER_CHAR) return c;
+
+    uint8_t offset = 0;
+    do {
+        char prev = pgm_read_byte(&_template[--index]);
+        if (prev != PLACEHOLDER_CHAR) {
+            break;
+        }
+        offset++;
+    } while (index);
+    
+    return settings.id[offset];
+}
+
+bool identify() {
+    return mqtt.sendToRadio(id_topic, sizeof(id_topic) - 1, id_payload, sizeof(id_payload) - 1, true, true, renderTemplate);
+}
+
+void measure() {
+    char value_str[13];
+    char payload[50] = "";
+
+    sensor.takeForcedMeasurement(MODE_FORCED, SAMPLING_X2, SAMPLING_X16);
+
+    int32ToStrFixedPoint((sensor.getTemperature() + 5) / 10, value_str, 1);
+    strcat(payload, "{\"t\":");
+    strcat(payload, value_str);
+
+    int32ToStrFixedPoint(sensor.getPressurePa(), value_str, 2);
+    strcat(payload, ",\"p\":");
+    strcat(payload, value_str);
+
+    int32ToStrFixedPoint(battery_voltage_mv, value_str);
+    strcat(payload, ",\"v\":");
+    strcat(payload, value_str);
+
+    int32ToStrFixedPoint(calcBatteryLevel(battery_voltage_mv), value_str);
+    strcat(payload, ",\"b\":");
+    strcat(payload, value_str);
+
+    strcat(payload, "}");
+
+    mqtt.publish(state_topic, payload, false);
+    battery_voltage_mv = getBatteryVoltage();
+}
+
+void generateUID(char uid[6]) {
+    union ENTROPY {
+        struct {
+            uint8_t osccal;
+            int32_t temp;
+            int32_t pressure;
+            uint16_t voltage;
+            BMP280_CAL_DATA cal_data;
+        };
+        uint8_t bytes[];
+    } entropy;
+
+    sensor.takeForcedMeasurement(MODE_FORCED, SAMPLING_X2, SAMPLING_X16);
+    entropy.temp = sensor.getTemperature();
+    entropy.pressure = sensor.getPressurePa();
+    entropy.voltage = getBatteryVoltage();
+    entropy.osccal = OSCCAL;
+    memcpy(&entropy.cal_data, sensor.getCalibrationData(), sizeof(BMP280_CAL_DATA));
+
+    uint32_t hash = 5381;
+    for (uint8_t i = 0; i < sizeof(entropy); i++) {
+        hash = ((hash << 5) + hash) ^ entropy.bytes[i];
+    }
+
+    for (int8_t i = 5; i >= 0; i--) {
+        uint8_t nibble = hash & 0xF;
+        uid[i] = (nibble < 10) ? (nibble + '0') : (nibble - 10 + 'A');
+        hash >>= 4;
+    }
 }
 
 void initAll() {
-    setupWatchdog();
+    wdt_enable(WDTO_8S);
+    wdtRestoreInterruptAndResetMode();
     clock_prescale_set(clock_div_8); // switch clock to 1 MHz
-    PRR |= (1 << PRTIM0) | (1 << PRTIM1) | (1 << PRTIM2) | (1 << PRUSART0); // disable all timers & USART
-    ACSR |= (1 << ACD);  // disable Analog Comparator
+    ACSR |= (1 << ACD);  // disable Analog Comparator    
+    power_all_disable();
     sleep_bod_disable(); // disable the BOD while sleeping
 
     // Enable pull-ups on all unused pins to reduce leakage current
     DDRB = 0x00; PORTB = 0xFF;
     DDRC = 0x00; PORTC = 0xFF;
     DDRD = 0x00; PORTD = 0xFF;
+
+    PORTB &= ~(1 << PINB1);
+    PORTB |= (1 << PINB2);
+
+    power_spi_enable();
+    DDRB |= (1 << PINB1) | (1 << PINB2) | (1 << PINB3) | (0 << PINB4) | (1 << PINB5);
+
+    SPSR = (1 << SPI2X);  // Double SPI speed
+    SPCR = 1 << SPE                     /* SPI module enable: enabled */
+           | 0 << DORD                  /* Data order: disabled */
+           | 1 << MSTR                  /* Master/Slave select: enabled */
+           | 0 << CPOL                  /* Clock polarity: disabled */
+           | 0 << CPHA                  /* Clock phase: disabled */
+           | 0 << SPIE                  /* SPI interrupt enable: disabled */
+           | (0 << SPR1) | (0 << SPR0); /* SPI Clock rate selection: fosc/4 */
     
     sei();
 
-    bmp280_init();
-    bmp280_setSampling(MODE_FORCED, SAMPLING_X2, SAMPLING_X16, FILTER_OFF, STANDBY_MS_1);
-    NRF_connect_init();
+    power_twi_enable();
+    sensor.init();
+    sensor.setSampling(MODE_FORCED, SAMPLING_X2, SAMPLING_X16, FILTER_OFF, STANDBY_MS_1);
+    
+    const uint16_t MAGIC = 0xC0DE;
+    eeprom_read_block(&settings, 0, sizeof(settings));
+    if (settings.magic != MAGIC) { // load defaults
+        settings.magic = MAGIC;
+        settings.bandgap = REFERENCE_VOLTAGE;
+        generateUID(settings.id);
+        eeprom_write_block(&settings, 0, sizeof(settings));
+    }
+
+    battery_voltage_mv = getBatteryVoltage();
+    // Update state topic id
+    memcpy(state_topic + sizeof(state_topic) - sizeof(settings.id) - 1, settings.id, sizeof(settings.id));
 }
 
 // Counter for tracking identification delay, preserved between resets
 uint16_t ident_counter __attribute__((section(".noinit")));
 
 int main(void) {
-    bool isWatchdogReset = MCUSR & (1 << WDRF);
+    bool isExternalReset = MCUSR & (1 << EXTRF);
     MCUSR = 0;
 
     initAll();
 
-    if (isWatchdogReset) {
-        if (ident_counter > IDENT_PERIOD) { // If the counter value is incorrect
-            ident_counter = START_DELAY_PERIOD;
-        } // else continue count
-    } else {                                // Normal reset
+    uint16_t update_counter = isExternalReset ? 0 : START_DELAY_PERIOD;
+
+    if (isExternalReset) {
+        ident_counter = 0;
+    } else if (ident_counter == 0 || ident_counter > IDENT_PERIOD) {
         ident_counter = START_DELAY_PERIOD;
     }
 
-    uint16_t update_counter = START_DELAY_PERIOD;
-    uint16_t voltage = getBatteryVoltage();
-    char value_str[13];
-
     while (true) {
-        if(ident_counter == 0) {
+        if (ident_counter == 0) {
             ident_counter = IDENT_PERIOD;
             nrfSetup();
             identify();
@@ -143,37 +248,14 @@ int main(void) {
 
         if (update_counter == 0) {
             update_counter = UPDATE_PERIOD;
-            char buff[50] = "";
-            bmp280_takeForcedMeasurement(MODE_FORCED, SAMPLING_X2, SAMPLING_X16);
-
-            int32ToStrFixedPoint((bmp280_gettemperature() + 5) / 10, value_str, 1);
-            strcat(buff,"{\"t\":");
-            strcat(buff, value_str);
-
-            int32ToStrFixedPoint(bmp280_getpressure(), value_str, 2);
-            strcat(buff,",\"p\":");
-            strcat(buff, value_str);
-
-            int32ToStrFixedPoint(voltage, value_str);
-            strcat(buff,",\"v\":");
-            strcat(buff, value_str);
-
-            uint8_t batt = calculateCR2032BatteryPercentage(voltage);
-            int32ToStrFixedPoint(batt, value_str);
-            strcat(buff,",\"b\":");
-            strcat(buff, value_str);
-
-            strcat(buff,"}");
-
             nrfSetup();
-            RF24MQTT_sendMessage(TOPIC_NAME, buff, false);
-            voltage = getBatteryVoltage();
+            measure();
         }
 
         update_counter--;
         ident_counter--;
 
         enterSleep();
-        setupWatchdog(); // After waking up from sleep, restore combined mode
+        wdtRestoreInterruptAndResetMode();
     }
 }
