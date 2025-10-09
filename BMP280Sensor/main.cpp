@@ -36,6 +36,7 @@ uint16_t battery_voltage_mv = 0;
 struct SETTINGS {
     uint16_t magic;
     uint16_t bandgap;
+    uint8_t power;
     char id[6];
 } settings;
 
@@ -85,7 +86,7 @@ void nrfSetup() {
     static const uint8_t gateway_channel = 0x6f;
 
     radio.begin();
-    radio.setPALevel(RF24_PA_MAX);
+    radio.setPALevel(settings.power);
     radio.enableDynamicPayloads();
     radio.setDataRate(RF24_1MBPS);
     radio.setCRCLength(RF24_CRC_16);
@@ -144,15 +145,12 @@ void measure() {
 }
 
 void generateUID(char uid[6]) {
-    union ENTROPY {
-        struct {
-            uint8_t osccal;
-            int32_t temp;
-            int32_t pressure;
-            uint16_t voltage;
-            BMP280_CAL_DATA cal_data;
-        };
-        uint8_t bytes[];
+    struct ENTROPY {
+        uint8_t osccal;
+        int32_t temp;
+        int32_t pressure;
+        uint16_t voltage;
+        BMP280_CAL_DATA cal_data;
     } entropy;
 
     sensor.takeForcedMeasurement(MODE_FORCED, SAMPLING_X2, SAMPLING_X16);
@@ -162,9 +160,10 @@ void generateUID(char uid[6]) {
     entropy.osccal = OSCCAL;
     memcpy(&entropy.cal_data, sensor.getCalibrationData(), sizeof(BMP280_CAL_DATA));
 
+    uint8_t* bytes = (uint8_t*)&entropy;
     uint32_t hash = 5381;
     for (uint8_t i = 0; i < sizeof(entropy); i++) {
-        hash = ((hash << 5) + hash) ^ entropy.bytes[i];
+        hash = ((hash << 5) + hash) ^ bytes[i];
     }
 
     for (int8_t i = 5; i >= 0; i--) {
@@ -177,10 +176,11 @@ void generateUID(char uid[6]) {
 void initAll() {
     wdt_enable(WDTO_8S);
     wdtRestoreInterruptAndResetMode();
-    clock_prescale_set(clock_div_8); // switch clock to 1 MHz
-    ACSR |= (1 << ACD);  // disable Analog Comparator    
+    clock_prescale_set(clock_div_8);
+    ACSR |= (1 << ACD);     // disable Analog Comparator
+    ADCSRA &= ~(1 << ADEN); // disable ADC
     power_all_disable();
-    sleep_bod_disable(); // disable the BOD while sleeping
+    sleep_bod_disable();
 
     // Enable pull-ups on all unused pins to reduce leakage current
     DDRB = 0x00; PORTB = 0xFF;
@@ -204,15 +204,18 @@ void initAll() {
     
     sei();
 
+    _delay_ms(250); // Preventing EEPROM Corruption
+
     power_twi_enable();
     sensor.init();
     sensor.setSampling(MODE_FORCED, SAMPLING_X2, SAMPLING_X16, FILTER_OFF, STANDBY_MS_1);
-    
+
     const uint16_t MAGIC = 0xC0DE;
     eeprom_read_block(&settings, 0, sizeof(settings));
     if (settings.magic != MAGIC) { // load defaults
         settings.magic = MAGIC;
         settings.bandgap = REFERENCE_VOLTAGE;
+        settings.power = RF24_PA_MAX;
         generateUID(settings.id);
         eeprom_write_block(&settings, 0, sizeof(settings));
     }
