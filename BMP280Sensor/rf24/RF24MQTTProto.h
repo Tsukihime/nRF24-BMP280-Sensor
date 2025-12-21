@@ -26,19 +26,11 @@ struct NextPacket {
     uint8_t data[RF24_PACKET_SIZE - sizeof(PacketHeader)];
 } __attribute__((packed));
 
-struct FirstPacketOld {
-    uint16_t topic_length;
-    uint16_t payload_length;
-    uint8_t retained;
-    uint8_t data[RF24_PACKET_SIZE - sizeof(PacketHeader) - 5];
-} __attribute__((packed));
-
 struct Packet {
     PacketHeader header;
     union {
         FirstPacket first;
         NextPacket next;
-        FirstPacketOld old;
     };
 } __attribute__((packed));
 
