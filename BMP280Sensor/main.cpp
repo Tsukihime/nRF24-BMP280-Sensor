@@ -86,9 +86,10 @@ void nrfSetup() {
     static const uint8_t gateway_channel = 0x6f;
 
     radio.begin();
+    radio.setRetries(5, 5);
     radio.setPALevel(settings.power);
     radio.enableDynamicPayloads();
-    radio.setDataRate(RF24_1MBPS);
+    radio.setDataRate(RF24_250KBPS);
     radio.setCRCLength(RF24_CRC_16);
     radio.setChannel(gateway_channel);
     radio.setAutoAck(true);
@@ -191,7 +192,7 @@ void initAll() {
     PORTB |= (1 << PINB2);
 
     power_spi_enable();
-    DDRB |= (1 << PINB1) | (1 << PINB2) | (1 << PINB3) | (0 << PINB4) | (1 << PINB5);
+    DDRB |= (1 << DDB1) | (1 << DDB2) | (1 << DDB3) | (0 << DDB4) | (1 << DDB5);
 
     SPSR = (1 << SPI2X);  // Double SPI speed
     SPCR = 1 << SPE                     /* SPI module enable: enabled */
